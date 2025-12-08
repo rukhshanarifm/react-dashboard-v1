@@ -1,53 +1,42 @@
-import { Moon, Sun, RotateCcw } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
-import { useDashboard } from '../contexts/DashboardContext';
+import { Moon, Sun } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 const Header = () => {
-  const { theme, toggleTheme } = useTheme();
-  const { resetDashboard } = useDashboard();
+  const [theme, setTheme] = useState('light');
 
-  const handleReset = () => {
-    if (window.confirm('Are you sure you want to reset the dashboard? This will remove all customizations.')) {
-      resetDashboard();
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    setTheme(savedTheme);
+    if (savedTheme === 'dark') {
+      document.body.classList.add('dark');
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    localStorage.setItem('theme', newTheme);
+    if (newTheme === 'dark') {
+      document.body.classList.add('dark');
+    } else {
+      document.body.classList.remove('dark');
     }
   };
 
   return (
     <header className="header">
-      <div className="container">
-        <div className="flex items-center justify-between">
-          {/* Logo/Title */}
-          <div className="flex items-center">
-            <h1 className="text-2xl font-bold">
-              Dashboard
-            </h1>
-          </div>
-
-          {/* Actions */}
-          <div className="flex items-center gap-4">
-            {/* Reset Dashboard */}
-            <button
-              onClick={handleReset}
-              className="btn btn-secondary"
-              title="Reset Dashboard"
-            >
-              <RotateCcw size={16} />
-            </button>
-
-            {/* Theme Toggle */}
-            <button
-              onClick={toggleTheme}
-              className="btn btn-secondary"
-              title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-            >
-              {theme === 'light' ? (
-                <Moon size={16} />
-              ) : (
-                <Sun size={16} />
-              )}
-            </button>
-          </div>
-        </div>
+      <div className="container flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          Course Analytics Dashboard
+        </h1>
+        
+        <button
+          onClick={toggleTheme}
+          className="btn btn-secondary flex items-center gap-2"
+          aria-label="Toggle theme"
+        >
+          {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+        </button>
       </div>
     </header>
   );
