@@ -8,9 +8,17 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 3000,
     strictPort: false,
+    host: 'localhost',
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost'
+    }
   },
   build: {
     outDir: 'dist',
     sourcemap: true,
   },
+  optimizeDeps: {
+    include: ['react', 'react-dom']
+  }
 }))

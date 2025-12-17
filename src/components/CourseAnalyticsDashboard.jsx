@@ -49,36 +49,51 @@ const CourseAnalyticsDashboard = () => {
     return getLastLessonByCourse(parseInt(selectedCourse));
   }, [selectedCourse]);
 
-  // 1. Registration Breakdown
+  // 1. Registration Breakdown - Stacked by Month and Grade
   const registrationBreakdown = useMemo(() => {
     const breakdown = {};
+    
     filteredRegistrations.forEach(reg => {
-      const course = courses.find(c => c.id === reg.courseId);
       const cohort = cohorts.find(c => c.id === reg.cohortId);
-      const school = schools.find(s => s.id === reg.schoolId);
-      const method = signupMethods.find(m => m.id === reg.signupMethodId);
+      const course = courses.find(c => c.id === reg.courseId);
       
-      const key = `${course?.name} - ${cohort?.name}`;
-      if (!breakdown[key]) {
-        breakdown[key] = { 
-          name: key, 
-          course: course?.name,
-          cohort: cohort?.name,
-          count: 0,
-          bySchool: {},
-          byMethod: {}
+      if (!cohort || !course) return;
+      
+      const month = cohort.name; // e.g., "Jan 2025", "Feb 2025"
+      
+      if (!breakdown[month]) {
+        breakdown[month] = {
+          month: month,
+          'Grade 1': 0,
+          'Grade 2': 0,
+          'Grade 3': 0,
+          total: 0
         };
       }
-      breakdown[key].count++;
-      breakdown[key].bySchool[school?.name] = (breakdown[key].bySchool[school?.name] || 0) + 1;
-      breakdown[key].byMethod[method?.name] = (breakdown[key].byMethod[method?.name] || 0) + 1;
+      
+      // Extract grade from course name (e.g., "Grade 1 - Kids - July" -> "Grade 1")
+      if (course.name.includes('Grade 1')) {
+        breakdown[month]['Grade 1']++;
+      } else if (course.name.includes('Grade 2')) {
+        breakdown[month]['Grade 2']++;
+      } else if (course.name.includes('Grade 3')) {
+        breakdown[month]['Grade 3']++;
+      }
+      
+      breakdown[month].total++;
     });
-    return Object.values(breakdown);
+    
+    return Object.values(breakdown).sort((a, b) => {
+      // Sort by date (cohort start date)
+      const cohortA = cohorts.find(c => c.name === a.month);
+      const cohortB = cohorts.find(c => c.name === b.month);
+      return new Date(cohortA?.startDate || 0) - new Date(cohortB?.startDate || 0);
+    });
   }, [filteredRegistrations]);
 
   // 2. Active Users by Time Period
   const activeUsersByPeriod = useMemo(() => {
-    const now = new Date('2025-11-19T12:00:00');
+    const now = new Date('2025-12-17T12:00:00');
     const periods = [3, 7, 14, 21, 30];
     
     return periods.map(days => {
@@ -88,9 +103,9 @@ const CourseAnalyticsDashboard = () => {
       const activeUsers = new Set();
       userActivities.forEach(activity => {
         const activityDate = new Date(activity.timestamp);
-        if (activityDate >= cutoffDate) {
-          const reg = filteredRegistrations.find(r => r.userId === activity.userId);
-          if (reg) activeUsers.add(activity.userId);
+        const reg = filteredRegistrations.find(r => r.userId === activity.userId);
+        if (reg && activityDate >= cutoffDate && activityDate <= now) {
+          activeUsers.add(activity.userId);
         }
       });
       
@@ -457,6 +472,30 @@ const CourseAnalyticsDashboard = () => {
     a.click();
   };
 
+  // Export At-Risk Learners to CSV
+  const exportAtRiskToCSV = () => {
+    const headers = ['User ID', 'Name', 'Course', 'Cohort', 'Days Since Activity', 'Last Activity', 'Status'];
+    const rows = atRiskLearners.map(learner => {
+      return [
+        learner.userId,
+        `"${learner.name}"`,
+        `"${learner.course}"`,
+        `"${learner.cohort}"`,
+        learner.daysSinceActivity,
+        `"${learner.lastActivity}"`,
+        learner.status
+      ].join(',');
+    });
+
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `at-risk-learners-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+  };
+
   const [expandedState, setExpandedState] = useState(null);
 
   return (
@@ -537,6 +576,7 @@ const CourseAnalyticsDashboard = () => {
           </div>
           <p className="text-3xl font-bold mb-1">{filteredRegistrations.length}</p>
           <p className="text-sm opacity-90">Registered Learners</p>
+          <p className="text-xs opacity-75 mt-2">Total number of students enrolled in courses</p>
         </div>
 
         <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white shadow-lg">
@@ -546,6 +586,7 @@ const CourseAnalyticsDashboard = () => {
           </div>
           <p className="text-3xl font-bold mb-1">{completionRate.rate}%</p>
           <p className="text-sm opacity-90">{completionRate.completed}/{completionRate.started} Completed</p>
+          <p className="text-xs opacity-75 mt-2">Percentage of students who finished their course</p>
         </div>
 
         <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-6 text-white shadow-lg">
@@ -555,6 +596,7 @@ const CourseAnalyticsDashboard = () => {
           </div>
           <p className="text-3xl font-bold mb-1">{atRiskLearners.length}</p>
           <p className="text-sm opacity-90">At-Risk Learners</p>
+          <p className="text-xs opacity-75 mt-2">Students inactive for 8+ days who may drop off</p>
         </div>
 
         <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white shadow-lg">
@@ -562,8 +604,9 @@ const CourseAnalyticsDashboard = () => {
             <DollarSign className="w-8 h-8 opacity-80" />
             <span className="text-sm font-medium opacity-90">Revenue</span>
           </div>
-          <p className="text-3xl font-bold mb-1">${revenueData.total.toLocaleString()}</p>
-          <p className="text-sm opacity-90">${revenueData.avgPerLearner}/learner avg</p>
+          <p className="text-3xl font-bold mb-1">PKR {revenueData.total.toLocaleString()}</p>
+          <p className="text-sm opacity-90">PKR {revenueData.avgPerLearner}/learner avg</p>
+          <p className="text-xs opacity-75 mt-2">Total revenue generated from paid enrollments</p>
         </div>
       </div>
 
@@ -571,15 +614,25 @@ const CourseAnalyticsDashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* Registration Breakdown */}
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Registration Breakdown</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Registration Breakdown by Month</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Students registered per grade in each cohort month</p>
           <div style={{ width: '100%', height: 300 }}>
             <ResponsiveContainer>
               <BarChart data={registrationBreakdown}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
-                <XAxis dataKey="name" tick={{ fill: '#9ca3af', fontSize: 11 }} angle={-45} textAnchor="end" height={100} />
+                <XAxis 
+                  dataKey="month" 
+                  tick={{ fill: '#9ca3af', fontSize: 11 }} 
+                />
                 <YAxis tick={{ fill: '#9ca3af', fontSize: 11 }} />
-                <Tooltip contentStyle={{ backgroundColor: 'rgba(17, 24, 39, 0.95)', border: '1px solid #374151', borderRadius: '8px', color: '#fff' }} />
-                <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: 'rgba(17, 24, 39, 0.95)', border: '1px solid #374151', borderRadius: '8px', color: '#fff' }}
+                  formatter={(value, name) => [value, name]}
+                />
+                <Legend />
+                <Bar dataKey="Grade 1" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
+                <Bar dataKey="Grade 2" stackId="a" fill="#8b5cf6" radius={[0, 0, 0, 0]} />
+                <Bar dataKey="Grade 3" stackId="a" fill="#ec4899" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -587,7 +640,8 @@ const CourseAnalyticsDashboard = () => {
 
         {/* Active Users by Period */}
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Active Users by Time Period</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Active Users by Time Period</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Students who had activity in the specified time period</p>
           <div style={{ width: '100%', height: 300 }}>
             <ResponsiveContainer>
               <BarChart data={activeUsersByPeriod}>
@@ -603,7 +657,7 @@ const CourseAnalyticsDashboard = () => {
 
         {/* Funnel */}
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg relative">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-1">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Course Progression Funnel</h3>
             {lastLessonInfo && (
               <div className="text-sm text-gray-600 dark:text-gray-400">
@@ -613,6 +667,7 @@ const CourseAnalyticsDashboard = () => {
               </div>
             )}
           </div>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Student progression from registration to course completion</p>
           <div className="space-y-3">
             {funnelData.map((stage, index) => (
               <div 
@@ -682,7 +737,8 @@ const CourseAnalyticsDashboard = () => {
 
         {/* Daily Attrition */}
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Daily Attrition Rate</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Daily Attrition Rate</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Percentage of students dropping off each day</p>
           <div style={{ width: '100%', height: 300 }}>
             <ResponsiveContainer>
               <LineChart data={attritionData}>
@@ -703,9 +759,10 @@ const CourseAnalyticsDashboard = () => {
       {selectedCourse !== 'all' && (
         <div className="mb-6">
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
               Student Progress by Lesson - {courses.find(c => c.id === parseInt(selectedCourse))?.name}
             </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Distribution of students across lesson modules</p>
             {lessonProgressData.length === 0 ? (
               <div className="p-8 text-center text-gray-500 dark:text-gray-400">
                 <p>No lesson progress data available for this course.</p>
@@ -780,9 +837,10 @@ const CourseAnalyticsDashboard = () => {
       {/* School Performance Breakdown */}
       <div className="mb-6">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
             School Performance Breakdown
           </h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Student enrollment and performance metrics by school</p>
           {schoolBreakdownData.length === 0 ? (
             <div className="p-8 text-center text-gray-500 dark:text-gray-400">
               <p>No school data available based on current filters.</p>
@@ -820,10 +878,10 @@ const CourseAnalyticsDashboard = () => {
                                 <span className="font-medium">Students:</span> {data.studentCount}
                               </p>
                               <p className="text-green-300">
-                                <span className="font-medium">Revenue:</span> ${data.revenue.toLocaleString()}
+                                <span className="font-medium">Revenue:</span> PKR {data.revenue.toLocaleString()}
                               </p>
                               <p className="text-yellow-300">
-                                <span className="font-medium">Avg/Student:</span> ${data.avgRevenuePerStudent}
+                                <span className="font-medium">Avg/Student:</span> PKR {data.avgRevenuePerStudent}
                               </p>
                               <p className="text-purple-300">
                                 <span className="font-medium">Completion Rate:</span> {data.completionRate}%
@@ -878,7 +936,8 @@ const CourseAnalyticsDashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* Learner States */}
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Learner Activity States</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Learner Activity States</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Students grouped by their last activity time</p>
           <div className="space-y-3">
             {learnerStates.map((state) => (
               <div key={state.name}>
@@ -913,7 +972,8 @@ const CourseAnalyticsDashboard = () => {
 
         {/* Revenue by Course */}
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Revenue by Course</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Revenue by Course</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Total revenue generated from each course</p>
           <div style={{ width: '100%', height: 300 }}>
             <ResponsiveContainer>
               <BarChart data={revenueData.byCourse}>
@@ -930,7 +990,19 @@ const CourseAnalyticsDashboard = () => {
 
       {/* At-Risk Learners Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">At-Risk & Dropped Off Learners</h3>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">At-Risk & Dropped Off Learners</h3>
+          {atRiskLearners.length > 0 && (
+            <button
+              onClick={exportAtRiskToCSV}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Export At-Risk CSV
+            </button>
+          )}
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Students who have been inactive for 8+ days and need intervention</p>
         {atRiskLearners.length === 0 ? (
           <p className="text-gray-600 dark:text-gray-400 text-center py-8">No at-risk learners found</p>
         ) : (
